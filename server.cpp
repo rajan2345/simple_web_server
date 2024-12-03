@@ -14,7 +14,7 @@ public:
 
 	void start(){
 		cout<<"Client connected: "<<client_id_<<endl;
-		send_message("Welcome, " + client_id_ + "!");
+		send_message("Welcome, " + client_id_ + "!Type 'disconnect' to disconnect");
 		read_message();
 	}
 
@@ -53,12 +53,18 @@ private:
 			[this, self](error_code ec, size_t length){
 				if(!ec){
 					string received_message(data_, length);
-					cout<<"Message from "<<client_id_<<":"<<received_message;
+					received_message.erase(received_message.find_last_not_of("\r\n")+1);
+					cout<<"Message from "<<client_id_<<":"<<received_message<<endl;
 
-					//Echo message back to client
-					send_message("Server: " + received_message);
+					if(received_message == "disconnect"){
+						cout<<"Client "<<client_id_<<"requested to disconnect"<<endl;
+						stop();
+					}
+					else{
+						send_message("Server : "+received_message);//echo message back
+						read_message(); // continue reading the message
+					}
 
-					read_message();//continue reading
 				}else if(ec == asio::error::eof){
 					cout<<"Client "<<client_id_ <<"diconnected. "<<endl;
 					on_disconnect_(client_id_);
@@ -77,7 +83,7 @@ private:
 
 class Server{
 public:
-	Server(asio::io_context& io_context, short port):acceptor_(io_context, asio::ip::tcp::endpoint(asio::ip::tcp::v4(), port)){
+	Server(asio::io_context& io_context, short port): io_context_(io_context),acceptor_(io_context, asio::ip::tcp::endpoint(asio::ip::tcp::v4(), port)){
 		accept_connection();
 
 		server_input_thread_ = thread([this](){
@@ -157,6 +163,8 @@ private:
 		string command;
 		while(getline(cin, command)){
 			if(command == "exit"){
+				io_context_.stop();
+				cout<<"Server shutting down..";
 				break;
 			}
 			else if (command.find("broadcast:")== 0){
@@ -169,17 +177,24 @@ private:
 					string message = command.substr(space_pos + 1);
 					send_message_to_client(client_id, message);
 				}
+				else{
+					cout<<"Invalid send command format. Use: send:<client_id><message>\n";
+				}
 			}
-			else if(command.find("disconnect: ")==0){
+			else if(command.find("disconnect:")==0){
 				string client_id = command.substr(11);
 				disconnect_client(client_id);
 			}
 			else{
-				cout<<"unknown command."<<endl;
+				cout<<"unknown command.Available commands"<<endl;
+				cout<<" braodcast:<message> - Send message to all client "<<endl;
+				cout<<" send:<client_id> <message> - Send message to a specific client"<<endl;
+				cout<<" disconnect: <client_id> -Disconnect a specific client"<<endl;
+				cout<<" exit - Shut down the server"<<endl;
 			}
 		}
 	}
-
+	asio::io_context& io_context_;
 	asio::ip::tcp::acceptor acceptor_;
 	unordered_map<string, shared_ptr<Session>> clients_;
 	mutex clients_mutex_;
